@@ -5150,6 +5150,145 @@ function optimizeFrounds(ast) {
   traverseChildren(ast, fix);
 }
 
+function asyncTransform(ast) {
+    traverse(ast, function(node, type) {
+        if(type === 'toplevel') return;
+
+        // TODO: how about 'function'
+        if(type !== 'defun') return;
+
+        if(node[1] === '_sleep') {
+            return getJS('function _sleep(cb, ctx, ms){ setTimeout(cb, ms, ctx); }');
+        }
+
+        // TODO: check if this function should be transforms
+        if(node[1] !== '_work') return null;
+
+
+        // collect arguments and all local variables
+        var ctxVars = [];
+        for(var i = 0; i < node[2].length; ++i) {
+            ctxVars.push(node[2][i]);
+        } 
+        for(var i = 0; i < node[3].length; ++i) {
+            var subnode = node[3][i];
+            if(subnode[0] === 'var') {
+                var vars = subnode[1];
+                for(var j = 0; j < vars.length; ++j) {
+                    ctxVars.push(vars[j][0]);
+                }
+            }
+        }
+
+        function getJS(jsStr) {
+            // strip 'toplevel'
+            return uglify.parser.parse(jsStr, false, debug)[1][0];
+        }
+
+        function getAsyncCTXSaveJS() {
+            var jsl = [];
+            for(var i = 0; i < ctxVars.length; ++i) {
+                jsl.push('ASYNC_STACK[async_context+'+i+'] = ' + ctxVars[i] + ';');
+            }    
+            return getJS('{' + jsl.join('\n') + '}');
+        }
+
+        // to be prepended before the while loop
+        function getAsyncCTXRestoreJS() {
+            var jsl = [];
+            for(var i = 0; i < ctxVars.length; ++i) {
+                jsl.push(ctxVars[i] + ' = ASYNC_STACK[async_context+'+i+'];');
+            }    
+            var varRestoreJS = jsl.join('\n');
+            var js = [
+                '{',
+                    'if(async_context) {',
+                        varRestoreJS,
+                    '} else {',
+                        'STACK_TOP += ' + ctxVars.length + ';',
+                    '}',
+                '}',
+            ].join('\n');
+            return getJS(js);
+        }
+
+        // add arguments for async function
+        node[2].unshift('async_context');
+        // TODO: callback
+
+        var funcBody = node[3];
+        // insert type declarations for new arguments
+        funcBody.unshift(getJS('async_context = async_context | 0;'));
+
+
+        // insert context recover code right before the loop
+        var loopFound = false;
+        for(var i = 0; i < funcBody.length; ++i) {
+            var stat = funcBody[i];
+            if(stat[0] === 'label' && stat[1] === 'L0') {
+                loopFound = true;
+                funcBody.splice(i, 0, getAsyncCTXRestoreJS());
+                break;
+            }
+        }
+        assert(loopFound);
+            
+        var restorePatched = false;
+        var maxLabel = 0;
+        traverse(node, function(node, type){
+
+            if(type !== 'switch') return;
+
+            var cases = node[2];
+            for(var i = 0; i < cases.length; ++i) {
+                var caseNo = cases[i][0][1];
+                if(caseNo > maxLabel)
+                    maxLabel = caseNo;
+            }
+
+            for(var i = 0; i < cases.length; ++i) {
+                var curCase = cases[i];
+                var curCaseBlock = curCase[1];
+                assert(curCaseBlock.length === 1 && curCaseBlock[0][0] === 'block');
+                curCaseBlock = curCaseBlock[0][1];
+                // check if there are any async calls
+                for(var j = 0; j < curCaseBlock.length; ++j) {
+                    var curStat = curCaseBlock[j];
+                    // TODO: check general async calls
+                    if(curStat[0] === 'stat' && curStat[1][0] === 'call'
+                        && curStat[1][1][0] === 'name' && curStat[1][1][1] === '_sleep')
+                        break;
+                }
+
+                if(j == curCaseBlock.length) continue;
+
+                // break the blocks at j and create a new one
+                var newLabel = ++maxLabel;
+                var callStat = curCaseBlock[j];
+                var newBlock = curCaseBlock.slice(j+1);
+                curCaseBlock = curCase[1] = curCaseBlock.slice(0,j);
+
+                // in the end of current block, set up new label and save the context before making an async call
+                curCaseBlock.push(getJS('label = ' + newLabel + ';'));
+                curCaseBlock.push(getAsyncCTXSaveJS());
+
+                // make async call now
+                // TODO: use current function name
+                callStat[1][2].unshift(['name', 'async_context']);
+                callStat[1][2].unshift(['name', '_work']);
+                curCaseBlock.push(callStat);
+                curCaseBlock.push(['return', null]);
+
+                // insert the new block/
+                cases.splice(i+1, 0, [['num', newLabel], [['block', newBlock]]]);
+            }
+            return null;
+        });
+
+        return null;
+    });
+}
+
 // Last pass utilities
 
 // Change +5 to DOT$ZERO(5). We then textually change 5 to 5.0 (uglify's ast cannot differentiate between 5 and 5.0 directly)
@@ -5290,6 +5429,9 @@ var passes = {
   outline: outline,
   safeHeap: safeHeap,
   optimizeFrounds: optimizeFrounds,
+
+  //Lu Wang
+  asyncTransform: asyncTransform,
 
   // flags
   minifyWhitespace: function() { minifyWhitespace = true },
