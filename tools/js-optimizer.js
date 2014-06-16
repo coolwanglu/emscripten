@@ -5167,44 +5167,79 @@ function asyncTransform(ast) {
             if(subnode[0] === 'var') {
                 var vars = subnode[1];
                 for(var j = 0; j < vars.length; ++j) {
-                    ctxVars.push(vars[j][0]);
+                    /*
+                     * do not save/restore label
+                     * right after loading the async context
+                     * we always set the correct the value of label,
+                     * or use the default value
+                     * but we never use the old value (right before making the previous async call)
+                     */
+                    if(vars[j][0] !== 'label')
+                        ctxVars.push(vars[j][0]);
                 }
             }
         }
 
+        /*
         function getJS(jsStr) {
             // strip 'toplevel'
             return uglify.parser.parse(jsStr, false, debug)[1][0];
         }
+        */
 
         function getSaveAsyncContextJS() {
-            var jsl = [];
+            var stats = [];
             for(var i = 0; i < ctxVars.length; ++i) {
-                jsl.push('__ASYNC_CUR_FRAME__.vars['+i+'] = ' + ctxVars[i] + ';');
+                stats.push(['stat', ['assign', true, 
+                        ['sub', ['dot', ['name', '__ASYNC_CUR_FRAME__'], 'vars'], ['num', i]],
+                        ['name', ctxVars[i]]]]);
             }    
-            return getJS('{' + jsl.join('\n') + '}');
+            return ['block', stats];
         }
 
         function getLoadAsyncContextJS() {
-            var jsl = [];
+            var stats = [];
             for(var i = 0; i < ctxVars.length; ++i) {
-                jsl.push(ctxVars[i] + ' = __ASYNC_CUR_FRAME__.vars['+i+'];');
+                stats.push(['stat', ['assign', true, 
+                        ['name', ctxVars[i]],
+                        ['sub', ['dot', ['name', '__ASYNC_CUR_FRAME__'], 'vars'], ['num', i]]]]);
             }    
-            return getJS('{' + jsl.join('\n') + '}');
+            return ['block', stats];
         }
 
         var funcBody = node[3];
+        var isAsync = false;
 
+        // TODO: check isAsync in a more efficient way
+        // Handle stubs, save/restore local variables
         traverse(funcBody, function(node, type){
             if(type === 'stat' && node[1][0] === 'call' && node[1][1][0] === 'name') {
                 if(node[1][1][1] === '_emscripten_save_async_context') {
+                    isAsync = true;
                     return getSaveAsyncContextJS();
                 } else if (node[1][1][1] === '_emscripten_load_async_context') {
+                    isAsync = true;
                     return getLoadAsyncContextJS();
                 }
             } 
         });
 
+        // handle async_return
+        // TODO: might need to rewrite
+        if(isAsync){
+            // use post callback
+            traverse(funcBody, function(){}, function(node, type) {
+                if(type === 'return' && node[1]) {
+                    return ['block', [
+                        ['stat', ['assign', true, 
+                            ['name', '__ASYNC_RETURN_VALUE__'],
+                            node[1].slice(0)]],
+                        node
+                    ]];
+                }
+            });
+        }
+       
         return null;
     });
 }

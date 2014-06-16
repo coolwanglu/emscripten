@@ -288,7 +288,11 @@ var __THREW__ = 0; // Used in checking for thrown exceptions.
 
 // for async calls
 var __ASYNC_CUR_FRAME__ = {async_label:0};
-var __ASYNC_FRAMES__ = [];
+// the default frame just stops the emscripten_async_resume function
+// by setting unwind to false, as if we have just made an aync call
+// in this way we don't need to check __ASYNC_FRAMES__.length > 0 everytime in emscripten_async_resume
+// TODO: should be flexible, allow adding callbacks here
+var __ASYNC_FRAMES__ = [{callback:function() { __ASYNC_CUR_FRAME__.unwind = false;}}];
 
 #if ASM_JS == 0
 var setjmpId = 1; // Used in setjmp/longjmp
