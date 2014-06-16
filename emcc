@@ -1781,6 +1781,9 @@ try:
     if DEBUG: save_intermediate('closure')
 
   if js_opts:
+    # TODO: add an option
+    js_optimizer_queue += ['asyncTransform']
+
     if shared.Settings.ASM_JS and shared.Settings.SAFE_HEAP: js_optimizer_queue += ['safeHeap']
 
     if shared.Settings.OUTLINING_LIMIT > 0 and shared.Settings.ASM_JS:

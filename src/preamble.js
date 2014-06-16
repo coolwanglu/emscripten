@@ -285,6 +285,11 @@ var START_TIME = Date.now();
 //========================================
 
 var __THREW__ = 0; // Used in checking for thrown exceptions.
+
+// for async calls
+var __ASYNC_CUR_FRAME__ = {async_label:0};
+var __ASYNC_FRAMES__ = [];
+
 #if ASM_JS == 0
 var setjmpId = 1; // Used in setjmp/longjmp
 var setjmpLabels = {};
