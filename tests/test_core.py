@@ -6813,6 +6813,26 @@ def process(filename):
       assert "low = 5678" in out
       assert "high = 1234" in out
 
+  def test_asyncify(self):
+    open('src.cpp', 'w').write(r'''
+#include <stdio.h>
+#include <emscripten.h>
+void f(void *p) {
+  *(int*)p = 99;
+  printf("!");
+}
+int main() {
+  int i = 0;
+  printf("Hello");
+  emscripten_async_call(f, &i, 1);
+  printf("World");
+  emscripten_sleep(100);
+  printf("%d\n", i);
+}
+''')
+    Popen([PYTHON, EMCC, 'src.cpp', '-s', 'ASYNCIFY=1']).communicate()
+    self.assertContained('HelloWorld!99', run_js('a.out.js'))
+
 # Generate tests for everything
 def make_run(fullname, name=-1, compiler=-1, embetter=0, quantum_size=0,
     typed_arrays=0, emcc_args=None, env=None):

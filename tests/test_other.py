@@ -3521,3 +3521,22 @@ int main()
     Popen([PYTHON, EMCC, 'src.cpp']).communicate()
     self.assertContained('ok!', run_js('a.out.js'))
 
+  def test_asyncify(self):
+    open('src.cpp', 'w').write(r'''
+#include <stdio.h>
+#include <emscripten.h>
+void f(void *p) {
+  *(int*)p = 99;
+  printf("!");
+}
+int main() {
+  int i = 0;
+  printf("Hello");
+  emscripten_async_call(f, &i, 1);
+  printf("World");
+  emscripten_sleep(100);
+  printf("%d\n", i);
+}
+''')
+    Popen([PYTHON, EMCC, 'src.cpp', '-s', 'ASYNCIFY=1']).communicate()
+    self.assertContained('HelloWorld!99', run_js('a.out.js'))
