@@ -1081,7 +1081,7 @@ def emscript_fast(infile, settings, outfile, libraries=[], compiler_engine=None,
       # We might not need them even if ASYNCIFY is enabled
       need_asyncify = '_emscripten_alloc_async_context' in exported_implemented_functions
       if need_asyncify:
-        basic_vars += ['___async', '___async_unwind', '___async_stacktop', '___async_retval', '___async_cur_frame']
+        basic_vars += ['___async', '___async_unwind', '___async_retval', '___async_cur_frame']
         asm_runtime_funcs += ['setAsync']
 
       # function tables
